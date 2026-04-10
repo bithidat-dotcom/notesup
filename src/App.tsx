@@ -31,6 +31,13 @@ const stripHtml = (html: string) => {
   return tmp.textContent || tmp.innerText || "";
 };
 
+const getFirstImage = (html: string) => {
+  const tmp = document.createElement("DIV");
+  tmp.innerHTML = html;
+  const img = tmp.querySelector("img");
+  return img ? img.src : null;
+};
+
 export default function App() {
   const [notes, setNotes] = useState<Note[]>(() => {
     const saved = localStorage.getItem("notesup_data");
@@ -68,7 +75,7 @@ export default function App() {
 
   const [session, setSession] = useState<Session | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
-  const [authUsername, setAuthUsername] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
@@ -382,44 +389,71 @@ export default function App() {
   const glassButton = "bg-blue-200/60 hover:bg-blue-300/70 backdrop-blur-md border border-white/60 shadow-sm transition-all duration-300 text-black";
   const iconButton = "p-2.5 rounded-2xl bg-blue-100/50 hover:bg-blue-200/70 backdrop-blur-md border border-white/50 transition-all text-black shadow-sm flex-shrink-0";
 
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!authUsername.trim()) {
-      setAuthError("Username is required");
-      return;
+  // Restore profile from notes if logging in on a new device
+  useEffect(() => {
+    if (session && notes.length > 0) {
+      const myLatestNote = notes.find(n => n.authorId === session.user.id);
+      if (myLatestNote) {
+        setProfile(prev => {
+          if (prev.name === "Anonymous" && myLatestNote.authorName) {
+            return {
+              ...prev,
+              name: myLatestNote.authorName,
+              avatarUrl: myLatestNote.authorAvatar || prev.avatarUrl
+            };
+          }
+          return prev;
+        });
+      }
     }
-    setAuthLoading(true);
-    setAuthError("");
-    
-    // Convert username to a dummy email for Supabase Auth
-    const dummyEmail = `${authUsername.trim().toLowerCase().replace(/[^a-z0-9_]/g, '')}@notesup.local`;
-    
-    const { error } = await supabase.auth.signUp({
-      email: dummyEmail,
-      password: authPassword,
-    });
-    if (error) setAuthError(error.message);
-    else setAuthError("Success! You are now logged in.");
-    setAuthLoading(false);
-  };
+  }, [session, notes]);
 
-  const handleSignIn = async (e: React.FormEvent) => {
+  const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!authUsername.trim()) {
-      setAuthError("Username is required");
+    if (!authEmail.trim()) {
+      setAuthError("Email is required");
       return;
     }
     setAuthLoading(true);
     setAuthError("");
     
-    // Convert username to the same dummy email
-    const dummyEmail = `${authUsername.trim().toLowerCase().replace(/[^a-z0-9_]/g, '')}@notesup.local`;
-    
-    const { error } = await supabase.auth.signInWithPassword({
-      email: dummyEmail,
+    // First, try to sign in
+    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+      email: authEmail,
       password: authPassword,
     });
-    if (error) setAuthError(error.message);
+
+    if (signInError) {
+      // If user doesn't exist or wrong password, it throws "Invalid login credentials"
+      if (signInError.message.includes("Invalid login credentials")) {
+        // Automatically try to sign up since the account might not exist yet
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email: authEmail,
+          password: authPassword,
+        });
+        
+        if (signUpError) {
+          if (signUpError.message.includes("User already registered")) {
+            // If it says already registered here, it means the account DOES exist, 
+            // so the original error was actually just a wrong password.
+            setAuthError("Incorrect password for this email.");
+          } else {
+            setAuthError(signUpError.message);
+          }
+        } else if (signUpData.user) {
+          // Successfully created new account and logged in
+          const handle = `@${authEmail.split('@')[0]}`;
+          setProfile(prev => ({ ...prev, id: signUpData.user.id, handle }));
+        }
+      } else {
+        setAuthError(signInError.message);
+      }
+    } else if (signInData.user) {
+      // Successfully logged into existing account
+      const handle = `@${authEmail.split('@')[0]}`;
+      setProfile(prev => ({ ...prev, id: signInData.user.id, handle }));
+    }
+    
     setAuthLoading(false);
   };
 
@@ -453,12 +487,12 @@ export default function App() {
           <h2 className="text-2xl font-bold text-center mb-6 text-black">Welcome Back</h2>
           <form className="space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-black/70 mb-2">Username</label>
+              <label className="block text-sm font-semibold text-black/70 mb-2">Email</label>
               <input 
-                type="text" 
-                value={authUsername}
-                onChange={(e) => setAuthUsername(e.target.value)}
-                placeholder="Enter a username"
+                type="email" 
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                placeholder="Enter your email"
                 className="w-full bg-white/50 border border-white/60 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-400/50 transition-all text-black font-medium"
                 required
               />
@@ -476,18 +510,11 @@ export default function App() {
             {authError && <p className="text-red-500 text-sm text-center">{authError}</p>}
             <div className="flex gap-3 pt-4">
               <button 
-                onClick={handleSignIn}
+                onClick={handleAuth}
                 disabled={authLoading}
-                className="flex-1 bg-blue-600 text-white py-3 rounded-2xl font-medium shadow-md hover:bg-blue-700 transition-colors disabled:opacity-50"
+                className="w-full bg-blue-600 text-white py-3 rounded-2xl font-medium shadow-md hover:bg-blue-700 transition-colors disabled:opacity-50"
               >
-                Sign In
-              </button>
-              <button 
-                onClick={handleSignUp}
-                disabled={authLoading}
-                className="flex-1 bg-white/50 text-black py-3 rounded-2xl font-medium border border-white/60 hover:bg-white/80 transition-colors disabled:opacity-50"
-              >
-                Sign Up
+                {authLoading ? "Signing In..." : "Sign In"}
               </button>
             </div>
           </form>
@@ -620,6 +647,11 @@ export default function App() {
                     <p className="text-sm text-black/60 truncate mt-1.5">
                       {stripHtml(note.content) || "No content"}
                     </p>
+                    {getFirstImage(note.content) && (
+                      <div className="mt-3 w-full rounded-xl overflow-hidden border border-black/5 shadow-sm bg-black/5">
+                        <img src={getFirstImage(note.content)!} alt="Attachment" className="w-full h-auto max-h-[400px] object-contain" />
+                      </div>
+                    )}
                     {note.authorId === profile.id && (
                       <button
                         onClick={(e) => deleteNote(note.id, e)}
