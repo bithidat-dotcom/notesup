@@ -1,5 +1,5 @@
 {
-  "name": "Glass Notes",
-  "description": "A high-performance, full-stack notebook app with smooth animations and a glassmorphism UI.",
-  "requestFramePermissions": []
+  "name": "notesup",
+  "description": "A high-performance, full-stack notebook app with rich text editing and voice messages.",
+  "requestFramePermissions": ["microphone"]
 }

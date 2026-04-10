@@ -6,14 +6,14 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '50mb' }));
 
   // In-memory data store for notes
   let notes: { id: string; title: string; content: string; updatedAt: number }[] = [
     {
       id: "1",
-      title: "Welcome to Glass Notes",
-      content: "This is a high-performance, full-stack notebook app with <b>smooth animations</b> and a beautiful <span style=\"background-color: #fef08a;\">glassmorphism</span> UI.<br><br>Try creating a new note or editing this one!",
+      title: "Welcome to notesup",
+      content: "Try creating a new note, editing this one, or recording a voice message!",
       updatedAt: Date.now(),
     },
   ];

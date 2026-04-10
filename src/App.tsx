@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Plus, Trash2, Edit3, Bold, Italic, Highlighter, Save, Edit2, Type, ChevronLeft } from "lucide-react";
+import { Plus, Trash2, Edit3, Bold, Italic, Highlighter, Save, Edit2, Type, ChevronLeft, Mic } from "lucide-react";
 
 interface Note {
   id: string;
@@ -24,6 +24,52 @@ export default function App() {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const editorRef = useRef<HTMLDivElement>(null);
+  
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  const toggleVoiceRecording = async () => {
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      setIsRecording(false);
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = () => {
+          const base64AudioMessage = reader.result as string;
+          if (editorRef.current) {
+            editorRef.current.focus();
+            const audioHtml = `&nbsp;<audio controls src="${base64AudioMessage}" class="my-2 max-w-full h-10 rounded-full shadow-sm"></audio>&nbsp;`;
+            document.execCommand('insertHTML', false, audioHtml);
+          }
+        };
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Error accessing microphone:", err);
+      alert("Could not access microphone. Please check permissions.");
+    }
+  };
 
   useEffect(() => {
     fetchNotes();
@@ -153,7 +199,7 @@ export default function App() {
         <div className="p-6 flex-1 flex flex-col h-full">
           <div className="flex items-center gap-3 font-semibold text-2xl mb-8 text-black px-2 pt-2">
             <Edit3 className="w-7 h-7" />
-            Glass Notes
+            notesup
           </div>
           
           <motion.button
@@ -301,6 +347,14 @@ export default function App() {
                 {/* Toolbar */}
                 {isEditing && (
                   <div className="flex items-center gap-3 px-4 md:px-10 py-3 md:py-4 bg-white/30 border-b border-white/40 overflow-x-auto custom-scrollbar">
+                    <button 
+                      onClick={toggleVoiceRecording} 
+                      className={`p-2.5 rounded-2xl backdrop-blur-md border border-white/50 transition-all shadow-sm flex-shrink-0 ${isRecording ? 'bg-red-200/80 text-red-600 animate-pulse hover:bg-red-300/80' : 'bg-blue-100/50 hover:bg-blue-200/70 text-black'}`} 
+                      title={isRecording ? "Stop Recording" : "Record Voice Message"}
+                    >
+                      <Mic className="w-5 h-5" />
+                    </button>
+                    <div className="w-px h-8 bg-black/10 mx-1 md:mx-2 flex-shrink-0" />
                     <button onClick={() => document.execCommand('bold')} className={iconButton} title="Bold">
                       <Bold className="w-5 h-5" />
                     </button>
