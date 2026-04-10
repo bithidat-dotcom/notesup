@@ -1,12 +1,19 @@
 import React, { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Plus, Trash2, Edit3, Bold, Italic, Highlighter, Save, Edit2, Type, ChevronLeft, Mic, X } from "lucide-react";
+import { Plus, Trash2, Edit3, Bold, Italic, Highlighter, Save, Edit2, Type, ChevronLeft, Mic, X, Globe, User, Book, Lock } from "lucide-react";
 
 interface Note {
   id: string;
   title: string;
   content: string;
   updatedAt: number;
+  isPublic?: boolean;
+  authorName?: string;
+}
+
+interface UserProfile {
+  name: string;
+  handle: string;
 }
 
 const stripHtml = (html: string) => {
@@ -39,6 +46,12 @@ export default function App() {
   const [isMobileListView, setIsMobileListView] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   
+  const [activeTab, setActiveTab] = useState<'my_notes' | 'social_notes' | 'profile'>('my_notes');
+  const [profile, setProfile] = useState<UserProfile>(() => {
+    const saved = localStorage.getItem("notesup_profile");
+    return saved ? JSON.parse(saved) : { name: "Anonymous", handle: "@user" };
+  });
+
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(notes.length > 0 ? notes[0].title : "");
   const editorRef = useRef<HTMLDivElement>(null);
@@ -52,6 +65,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("notesup_data", JSON.stringify(notes));
   }, [notes]);
+
+  useEffect(() => {
+    localStorage.setItem("notesup_profile", JSON.stringify(profile));
+  }, [profile]);
 
   const toggleVoiceRecording = async () => {
     if (isRecording) {
@@ -164,6 +181,10 @@ export default function App() {
   };
 
   const selectedNote = notes.find((n) => n.id === selectedNoteId);
+  
+  const displayedNotes = activeTab === 'social_notes' 
+    ? notes.filter(n => n.isPublic) 
+    : notes;
 
   // Glassmorphism classes
   const glassPanel = "bg-white/60 backdrop-blur-2xl border border-white/60 shadow-[0_12px_40px_rgba(0,0,0,0.06)]";
@@ -198,16 +219,20 @@ export default function App() {
             New Note
           </motion.button>
 
-          <div className="flex-1 overflow-y-auto space-y-3 pr-2 pb-6 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto space-y-3 pr-2 pb-4 custom-scrollbar">
             {isLoading ? (
               <div className="flex justify-center p-4">
                 <div className="w-6 h-6 border-2 border-blue-400/50 border-t-blue-600 rounded-full animate-spin" />
               </div>
-            ) : notes.length === 0 ? (
-              <div className="text-center text-black/50 mt-10">No notes yet.</div>
+            ) : displayedNotes.length === 0 ? (
+              <div className="text-center text-black/50 mt-10 px-4">
+                {activeTab === 'social_notes' 
+                  ? "No public notes yet. Make a note public to see it here!" 
+                  : "No notes yet."}
+              </div>
             ) : (
               <AnimatePresence>
-                {notes.map((note) => (
+                {displayedNotes.map((note) => (
                   <motion.div
                     key={note.id}
                     layout
@@ -227,6 +252,12 @@ export default function App() {
                     <h3 className="font-semibold truncate pr-8 text-black text-lg">
                       {note.title || "Untitled"}
                     </h3>
+                    {activeTab === 'social_notes' && note.authorName && (
+                      <div className="flex items-center gap-1 mt-1 text-xs font-medium text-blue-600/80">
+                        <User className="w-3 h-3" />
+                        {note.authorName}
+                      </div>
+                    )}
                     <p className="text-sm text-black/60 truncate mt-1.5">
                       {stripHtml(note.content) || "No content"}
                     </p>
@@ -241,6 +272,31 @@ export default function App() {
               </AnimatePresence>
             )}
           </div>
+
+          {/* Sidebar Bottom Navigation */}
+          <div className="pt-4 mt-auto border-t border-white/40 space-y-2">
+            <button
+              onClick={() => { setActiveTab('my_notes'); setIsMobileListView(true); }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-medium ${activeTab === 'my_notes' ? 'bg-blue-200/80 text-black shadow-sm' : 'hover:bg-white/40 text-black/70'}`}
+            >
+              <Book className="w-5 h-5" />
+              My Notes
+            </button>
+            <button
+              onClick={() => { setActiveTab('social_notes'); setIsMobileListView(true); }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-medium ${activeTab === 'social_notes' ? 'bg-blue-200/80 text-black shadow-sm' : 'hover:bg-white/40 text-black/70'}`}
+            >
+              <Globe className="w-5 h-5" />
+              Social Notes
+            </button>
+            <button
+              onClick={() => { setActiveTab('profile'); setIsMobileListView(false); }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-medium ${activeTab === 'profile' ? 'bg-blue-200/80 text-black shadow-sm' : 'hover:bg-white/40 text-black/70'}`}
+            >
+              <User className="w-5 h-5" />
+              Profile
+            </button>
+          </div>
         </div>
       </div>
 
@@ -253,7 +309,7 @@ export default function App() {
       >
         {/* Mobile Editor Header */}
         <div className={`md:hidden flex items-center justify-between p-4 border-b border-white/40 ${glassPanel} rounded-none border-x-0 border-t-0 z-10`}>
-          <button onClick={() => setIsMobileListView(true)} className={`p-3 rounded-2xl ${glassButton}`}>
+          <button onClick={() => { setIsMobileListView(true); if (activeTab === 'profile') setActiveTab('my_notes'); }} className={`p-3 rounded-2xl ${glassButton}`}>
             <ChevronLeft className="w-6 h-6" />
           </button>
           <div className="flex items-center gap-2">
@@ -273,7 +329,48 @@ export default function App() {
 
         <div className="flex-1 p-0 md:p-8 overflow-hidden">
           <AnimatePresence mode="wait">
-            {selectedNote ? (
+            {activeTab === 'profile' ? (
+              <motion.div
+                key="profile-view"
+                initial={{ opacity: 0, scale: 0.98, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.98, y: -10 }}
+                transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
+                className={`w-full h-full md:rounded-3xl ${glassPanel} md:border flex flex-col items-center justify-center p-6 border-0 rounded-none overflow-y-auto`}
+              >
+                <div className="w-full max-w-md bg-white/40 backdrop-blur-xl p-8 rounded-3xl border border-white/50 shadow-sm">
+                  <div className="w-20 h-20 bg-blue-200/80 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                    <User className="w-10 h-10 text-blue-700/70" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-center mb-8 text-black">Your Profile</h2>
+                  
+                  <div className="space-y-5">
+                    <div>
+                      <label className="block text-sm font-semibold text-black/70 mb-2">Display Name</label>
+                      <input 
+                        type="text" 
+                        value={profile.name}
+                        onChange={(e) => setProfile({...profile, name: e.target.value})}
+                        className="w-full bg-white/50 border border-white/60 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-400/50 transition-all text-black font-medium"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-black/70 mb-2">Username / Handle</label>
+                      <input 
+                        type="text" 
+                        value={profile.handle}
+                        onChange={(e) => setProfile({...profile, handle: e.target.value})}
+                        className="w-full bg-white/50 border border-white/60 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-400/50 transition-all text-black font-medium"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="mt-8 p-4 bg-blue-100/50 rounded-2xl border border-blue-200/50 text-sm text-black/70 text-center">
+                    Since you declined the database setup, your profile and social notes are saved locally on this device.
+                  </div>
+                </div>
+              </motion.div>
+            ) : selectedNote ? (
               <motion.div
                 key={selectedNote.id}
                 initial={{ opacity: 0, scale: 0.98, y: 10 }}
@@ -299,6 +396,16 @@ export default function App() {
                   )}
 
                   <div className="flex items-center gap-3">
+                    {isEditing && (
+                      <button 
+                        onClick={() => updateNote(selectedNote.id, { isPublic: !selectedNote.isPublic, authorName: profile.name })}
+                        className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-medium transition-all ${selectedNote.isPublic ? 'bg-green-200/70 hover:bg-green-300/80 text-green-900 shadow-sm border border-green-300/50' : glassButton}`}
+                        title={selectedNote.isPublic ? "Public Note" : "Private Note"}
+                      >
+                        {selectedNote.isPublic ? <Globe className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+                        <span className="hidden sm:inline">{selectedNote.isPublic ? 'Public' : 'Private'}</span>
+                      </button>
+                    )}
                     {isEditing ? (
                       <button onClick={handleSave} className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-medium ${glassButton}`}>
                         <Save className="w-5 h-5" />
