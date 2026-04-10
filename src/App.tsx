@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Plus, Trash2, Edit3, Bold, Italic, Highlighter, Save, Edit2, Type, ChevronLeft, Mic, X, Globe, User, Book, Lock } from "lucide-react";
+import { supabase } from "./lib/supabase";
 
 interface Note {
   id: string;
@@ -61,7 +62,7 @@ export default function App() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
-  // Save to local storage whenever notes change
+  // Save and sync with Supabase whenever notes change
   useEffect(() => {
     localStorage.setItem("notesup_data", JSON.stringify(notes));
   }, [notes]);
@@ -69,6 +70,36 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("notesup_profile", JSON.stringify(profile));
   }, [profile]);
+
+  // Initial fetch from Supabase
+  useEffect(() => {
+    const fetchNotes = async () => {
+      setIsLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('notes')
+          .select('*')
+          .order('updatedAt', { ascending: false });
+          
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+          setNotes(data);
+          if (!selectedNoteId) {
+            setSelectedNoteId(data[0].id);
+            setEditTitle(data[0].title);
+          }
+        }
+      } catch (err) {
+        console.error("Supabase fetch failed, falling back to local storage:", err);
+        // Fallback is already handled by the initial state from localStorage
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchNotes();
+  }, []);
 
   const toggleVoiceRecording = async () => {
     if (isRecording) {
@@ -97,7 +128,12 @@ export default function App() {
           const base64AudioMessage = reader.result as string;
           if (editorRef.current) {
             editorRef.current.focus();
-            const audioHtml = `&nbsp;<audio controls src="${base64AudioMessage}" class="my-2 max-w-full h-10 rounded-full shadow-sm"></audio>&nbsp;`;
+            const audioHtml = `&nbsp;<div contenteditable="false" class="inline-flex items-center gap-3 p-1.5 pr-4 bg-blue-50/80 backdrop-blur-md border border-blue-200/60 rounded-full shadow-sm my-2 max-w-full align-middle">
+              <div class="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white shadow-inner flex-shrink-0">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
+              </div>
+              <audio controls src="${base64AudioMessage}" class="h-8 outline-none max-w-[200px] sm:max-w-xs"></audio>
+            </div>&nbsp;`;
             document.execCommand('insertHTML', false, audioHtml);
           }
         };
@@ -112,18 +148,27 @@ export default function App() {
     }
   };
 
-  const createNote = () => {
+  const createNote = async () => {
     const newNote = {
       id: Date.now().toString(),
       title: "Untitled Note",
       content: "",
       updatedAt: Date.now(),
+      isPublic: false,
+      authorName: profile.name
     };
+    
     setNotes([newNote, ...notes]);
     setSelectedNoteId(newNote.id);
     setEditTitle(newNote.title);
     setIsEditing(true);
     setIsMobileListView(false);
+    
+    try {
+      await supabase.from('notes').insert([newNote]);
+    } catch (err) {
+      console.error("Failed to save to Supabase:", err);
+    }
     
     setTimeout(() => {
       if (editorRef.current) {
@@ -132,15 +177,23 @@ export default function App() {
     }, 100);
   };
 
-  const updateNote = (id: string, updates: Partial<Note>) => {
+  const updateNote = async (id: string, updates: Partial<Note>) => {
+    const updatedNote = { ...notes.find(n => n.id === id), ...updates, updatedAt: Date.now() } as Note;
+    
     setNotes((prev) =>
       prev
-        .map((n) => (n.id === id ? { ...n, ...updates, updatedAt: Date.now() } : n))
+        .map((n) => (n.id === id ? updatedNote : n))
         .sort((a, b) => b.updatedAt - a.updatedAt)
     );
+
+    try {
+      await supabase.from('notes').upsert(updatedNote);
+    } catch (err) {
+      console.error("Failed to update in Supabase:", err);
+    }
   };
 
-  const deleteNote = (id: string, e: React.MouseEvent) => {
+  const deleteNote = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setNotes((prev) => prev.filter((n) => n.id !== id));
     if (selectedNoteId === id) {
@@ -152,6 +205,12 @@ export default function App() {
       } else {
         setSelectedNoteId(null);
       }
+    }
+
+    try {
+      await supabase.from('notes').delete().eq('id', id);
+    } catch (err) {
+      console.error("Failed to delete from Supabase:", err);
     }
   };
 
@@ -274,27 +333,27 @@ export default function App() {
           </div>
 
           {/* Sidebar Bottom Navigation */}
-          <div className="pt-4 mt-auto border-t border-white/40 space-y-2">
+          <div className="pt-4 mt-auto border-t border-white/40 flex flex-row justify-around items-center px-2">
             <button
               onClick={() => { setActiveTab('my_notes'); setIsMobileListView(true); }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-medium ${activeTab === 'my_notes' ? 'bg-blue-200/80 text-black shadow-sm' : 'hover:bg-white/40 text-black/70'}`}
+              className={`p-3.5 rounded-2xl transition-all flex-1 flex justify-center mx-1 ${activeTab === 'my_notes' ? 'bg-blue-200/80 text-blue-900 shadow-sm' : 'hover:bg-white/40 text-black/60'}`}
+              title="My Notes"
             >
-              <Book className="w-5 h-5" />
-              My Notes
+              <Book className="w-6 h-6" />
             </button>
             <button
               onClick={() => { setActiveTab('social_notes'); setIsMobileListView(true); }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-medium ${activeTab === 'social_notes' ? 'bg-blue-200/80 text-black shadow-sm' : 'hover:bg-white/40 text-black/70'}`}
+              className={`p-3.5 rounded-2xl transition-all flex-1 flex justify-center mx-1 ${activeTab === 'social_notes' ? 'bg-blue-200/80 text-blue-900 shadow-sm' : 'hover:bg-white/40 text-black/60'}`}
+              title="Social Notes"
             >
-              <Globe className="w-5 h-5" />
-              Social Notes
+              <Globe className="w-6 h-6" />
             </button>
             <button
               onClick={() => { setActiveTab('profile'); setIsMobileListView(false); }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-medium ${activeTab === 'profile' ? 'bg-blue-200/80 text-black shadow-sm' : 'hover:bg-white/40 text-black/70'}`}
+              className={`p-3.5 rounded-2xl transition-all flex-1 flex justify-center mx-1 ${activeTab === 'profile' ? 'bg-blue-200/80 text-blue-900 shadow-sm' : 'hover:bg-white/40 text-black/60'}`}
+              title="Profile"
             >
-              <User className="w-5 h-5" />
-              Profile
+              <User className="w-6 h-6" />
             </button>
           </div>
         </div>
@@ -366,7 +425,7 @@ export default function App() {
                   </div>
                   
                   <div className="mt-8 p-4 bg-blue-100/50 rounded-2xl border border-blue-200/50 text-sm text-black/70 text-center">
-                    Since you declined the database setup, your profile and social notes are saved locally on this device.
+                    Your profile and notes are now synced with Supabase! Make notes public to share them in Social Notes.
                   </div>
                 </div>
               </motion.div>
@@ -377,8 +436,34 @@ export default function App() {
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.98, y: -10 }}
                 transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
-                className={`w-full h-full md:rounded-3xl ${glassPanel} md:border flex flex-col overflow-hidden border-0 rounded-none`}
+                className={`w-full h-full md:rounded-3xl ${glassPanel} md:border flex flex-col overflow-hidden border-0 rounded-none relative`}
               >
+                {/* Recording Animation Overlay */}
+                <AnimatePresence>
+                  {isRecording && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 20, scale: 0.9 }} 
+                      animate={{ opacity: 1, y: 0, scale: 1 }} 
+                      exit={{ opacity: 0, y: 20, scale: 0.9 }}
+                      className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-red-500/90 backdrop-blur-md text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-4 z-50 border border-red-400/50"
+                    >
+                      <div className="flex gap-1.5 items-center h-6">
+                        <span className="w-1.5 h-full bg-white rounded-full animate-[bounce_1s_infinite_0ms]" />
+                        <span className="w-1.5 h-2/3 bg-white rounded-full animate-[bounce_1s_infinite_200ms]" />
+                        <span className="w-1.5 h-full bg-white rounded-full animate-[bounce_1s_infinite_400ms]" />
+                        <span className="w-1.5 h-1/2 bg-white rounded-full animate-[bounce_1s_infinite_600ms]" />
+                      </div>
+                      <span className="font-semibold tracking-wide">Recording...</span>
+                      <button 
+                        onClick={toggleVoiceRecording} 
+                        className="ml-2 bg-white/20 p-2 rounded-full hover:bg-white/30 transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
                 {/* Desktop Header */}
                 <div className="hidden md:flex items-center justify-between p-8 md:p-10 pb-6 border-b border-white/40">
                   {isEditing ? (
