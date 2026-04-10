@@ -67,7 +67,8 @@ export default function App() {
   });
 
   const [session, setSession] = useState<Session | null>(null);
-  const [authEmail, setAuthEmail] = useState("");
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [authUsername, setAuthUsername] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
@@ -110,6 +111,7 @@ export default function App() {
       if (session) {
         setProfile(prev => ({ ...prev, id: session.user.id }));
       }
+      setIsInitializing(false);
     });
 
     const {
@@ -382,28 +384,63 @@ export default function App() {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!authUsername.trim()) {
+      setAuthError("Username is required");
+      return;
+    }
     setAuthLoading(true);
     setAuthError("");
+    
+    // Convert username to a dummy email for Supabase Auth
+    const dummyEmail = `${authUsername.trim().toLowerCase().replace(/[^a-z0-9_]/g, '')}@notesup.local`;
+    
     const { error } = await supabase.auth.signUp({
-      email: authEmail,
+      email: dummyEmail,
       password: authPassword,
     });
     if (error) setAuthError(error.message);
-    else setAuthError("Success! Check your email for the login link or you are now logged in.");
+    else setAuthError("Success! You are now logged in.");
     setAuthLoading(false);
   };
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!authUsername.trim()) {
+      setAuthError("Username is required");
+      return;
+    }
     setAuthLoading(true);
     setAuthError("");
+    
+    // Convert username to the same dummy email
+    const dummyEmail = `${authUsername.trim().toLowerCase().replace(/[^a-z0-9_]/g, '')}@notesup.local`;
+    
     const { error } = await supabase.auth.signInWithPassword({
-      email: authEmail,
+      email: dummyEmail,
       password: authPassword,
     });
     if (error) setAuthError(error.message);
     setAuthLoading(false);
   };
+
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 flex flex-col items-center justify-center p-4 font-sans">
+        <div className="flex items-center gap-3 font-semibold text-4xl text-black mb-8">
+          <Edit3 className="w-10 h-10 text-blue-600" />
+          notes_up
+        </div>
+        <div className="flex items-center text-xl font-medium text-black/60">
+          Loading
+          <div className="flex ml-2 mt-2">
+            <span className="w-1.5 h-1.5 bg-black/60 rounded-full mx-0.5 animate-[bounce_1s_infinite_0ms]"></span>
+            <span className="w-1.5 h-1.5 bg-black/60 rounded-full mx-0.5 animate-[bounce_1s_infinite_200ms]"></span>
+            <span className="w-1.5 h-1.5 bg-black/60 rounded-full mx-0.5 animate-[bounce_1s_infinite_400ms]"></span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!session) {
     return (
@@ -416,11 +453,12 @@ export default function App() {
           <h2 className="text-2xl font-bold text-center mb-6 text-black">Welcome Back</h2>
           <form className="space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-black/70 mb-2">Email</label>
+              <label className="block text-sm font-semibold text-black/70 mb-2">Username</label>
               <input 
-                type="email" 
-                value={authEmail}
-                onChange={(e) => setAuthEmail(e.target.value)}
+                type="text" 
+                value={authUsername}
+                onChange={(e) => setAuthUsername(e.target.value)}
+                placeholder="Enter a username"
                 className="w-full bg-white/50 border border-white/60 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-400/50 transition-all text-black font-medium"
                 required
               />
