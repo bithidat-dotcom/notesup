@@ -14,6 +14,7 @@ interface Note {
   authorName?: string;
   authorId?: string;
   authorAvatar?: string;
+  bannerColor?: string;
 }
 
 interface UserProfile {
@@ -68,6 +69,7 @@ export default function App() {
   const [editTitle, setEditTitle] = useState(notes.length > 0 ? notes[0].title : "");
   const editorRef = useRef<HTMLDivElement>(null);
   const [isFontSizeMenuOpen, setIsFontSizeMenuOpen] = useState(false);
+  const [isColorMenuOpen, setIsColorMenuOpen] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const profileInputRef = useRef<HTMLInputElement>(null);
@@ -209,7 +211,8 @@ export default function App() {
       isPublic: false,
       authorName: profile.name,
       authorId: profile.id,
-      authorAvatar: profile.avatarUrl
+      authorAvatar: profile.avatarUrl,
+      bannerColor: "from-blue-50/50 to-indigo-50/50"
     };
     
     setNotes([newNote, ...notes]);
@@ -416,8 +419,20 @@ export default function App() {
 
           <div className="flex-1 overflow-y-auto space-y-3 pr-2 pb-4 custom-scrollbar">
             {isLoading ? (
-              <div className="flex justify-center p-4">
-                <div className="w-6 h-6 border-2 border-blue-400/50 border-t-blue-600 rounded-full animate-spin" />
+              <div className="flex flex-col gap-3 p-2">
+                {[1, 2, 3, 4].map((i) => (
+                  <motion.div 
+                    key={i}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.1 }}
+                    className="p-5 rounded-3xl bg-white/30 border border-white/40 h-28 animate-pulse flex flex-col justify-between"
+                  >
+                    <div className="w-2/3 h-5 bg-black/10 rounded-full" />
+                    <div className="w-full h-3 bg-black/5 rounded-full mt-4" />
+                    <div className="w-4/5 h-3 bg-black/5 rounded-full mt-2" />
+                  </motion.div>
+                ))}
               </div>
             ) : displayedNotes.length === 0 ? (
               <div className="text-center text-black/50 mt-10 px-4">
@@ -603,10 +618,6 @@ export default function App() {
                       />
                     </div>
                   </div>
-                  
-                  <div className="mt-8 p-4 bg-blue-100/50 rounded-2xl border border-blue-200/50 text-sm text-black/70 text-center">
-                    Your profile and notes are now synced with Supabase! Make notes public to share them in Social Notes.
-                  </div>
                 </div>
               </motion.div>
             ) : selectedNote ? (
@@ -645,20 +656,38 @@ export default function App() {
                 </AnimatePresence>
 
                 {/* Desktop Header */}
-                <div className="hidden md:flex items-center justify-between p-8 md:p-10 pb-6 border-b border-white/40">
-                  {isEditing ? (
-                    <input
-                      type="text"
-                      value={editTitle}
-                      onChange={(e) => setEditTitle(e.target.value)}
-                      placeholder="Note Title"
-                      className="flex-1 bg-transparent text-3xl md:text-4xl font-bold outline-none placeholder:text-black/30 text-black"
-                    />
-                  ) : (
-                    <h1 className="flex-1 text-3xl md:text-4xl font-bold text-black truncate pr-4">
-                      {selectedNote.title || "Untitled"}
-                    </h1>
-                  )}
+                <div className={`hidden md:flex items-center justify-between p-8 md:p-10 pb-6 border-b border-white/40 bg-gradient-to-r ${selectedNote.bannerColor || 'from-transparent to-transparent'}`}>
+                  <div className="flex-1 min-w-0 mr-4">
+                    {isEditing && isMyNote ? (
+                      <input
+                        type="text"
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                        placeholder="Note Title"
+                        className="w-full bg-transparent text-3xl md:text-4xl font-bold outline-none placeholder:text-black/30 text-black mb-2"
+                      />
+                    ) : (
+                      <h1 className="w-full text-3xl md:text-4xl font-bold text-black truncate mb-2">
+                        {selectedNote.title || "Untitled"}
+                      </h1>
+                    )}
+                    
+                    {/* Author Profile Info */}
+                    {(selectedNote.authorName || selectedNote.authorAvatar) && (
+                      <div className="flex items-center gap-2 text-sm font-medium text-black/60">
+                        {selectedNote.authorAvatar ? (
+                          <img src={selectedNote.authorAvatar} alt={selectedNote.authorName} className="w-6 h-6 rounded-full object-cover border border-white/50 shadow-sm" />
+                        ) : (
+                          <div className="w-6 h-6 rounded-full bg-white/50 flex items-center justify-center border border-white/50 shadow-sm">
+                            <User className="w-3 h-3 text-black/50" />
+                          </div>
+                        )}
+                        <span>{selectedNote.authorName || 'Anonymous'}</span>
+                        <span className="text-black/30">•</span>
+                        <span>{new Date(selectedNote.updatedAt).toLocaleDateString()}</span>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="flex items-center gap-3">
                     {isMyNote && (
@@ -689,19 +718,35 @@ export default function App() {
                 </div>
 
                 {/* Mobile Title Input/Display */}
-                <div className="md:hidden p-6 pb-4 border-b border-white/20">
+                <div className={`md:hidden p-6 pb-4 border-b border-white/20 bg-gradient-to-r ${selectedNote.bannerColor || 'from-transparent to-transparent'}`}>
                   {isEditing && isMyNote ? (
                     <input
                       type="text"
                       value={editTitle}
                       onChange={(e) => setEditTitle(e.target.value)}
                       placeholder="Note Title"
-                      className="w-full bg-transparent text-2xl font-bold outline-none placeholder:text-black/30 text-black"
+                      className="w-full bg-transparent text-2xl font-bold outline-none placeholder:text-black/30 text-black mb-2"
                     />
                   ) : (
-                    <h1 className="w-full text-2xl font-bold text-black break-words">
+                    <h1 className="w-full text-2xl font-bold text-black break-words mb-2">
                       {selectedNote.title || "Untitled"}
                     </h1>
+                  )}
+                  
+                  {/* Author Profile Info */}
+                  {(selectedNote.authorName || selectedNote.authorAvatar) && (
+                    <div className="flex items-center gap-2 text-xs font-medium text-black/60">
+                      {selectedNote.authorAvatar ? (
+                        <img src={selectedNote.authorAvatar} alt={selectedNote.authorName} className="w-5 h-5 rounded-full object-cover border border-white/50 shadow-sm" />
+                      ) : (
+                        <div className="w-5 h-5 rounded-full bg-white/50 flex items-center justify-center border border-white/50 shadow-sm">
+                          <User className="w-3 h-3 text-black/50" />
+                        </div>
+                      )}
+                      <span>{selectedNote.authorName || 'Anonymous'}</span>
+                      <span className="text-black/30">•</span>
+                      <span>{new Date(selectedNote.updatedAt).toLocaleDateString()}</span>
+                    </div>
                   )}
                 </div>
 
@@ -766,6 +811,43 @@ export default function App() {
                       >
                         <Type className="w-4 h-4 text-black" />
                         <span className="text-sm text-black font-medium">Size</span>
+                      </button>
+                    )}
+
+                    <div className="w-px h-8 bg-black/10 mx-1 md:mx-2 flex-shrink-0" />
+                    
+                    {isColorMenuOpen ? (
+                      <div className="flex items-center gap-1 bg-blue-50/50 rounded-2xl px-1 py-1 border border-white/50 shadow-sm flex-shrink-0">
+                        {[
+                          { color: 'from-blue-50/50 to-indigo-50/50', bg: 'bg-blue-200' },
+                          { color: 'from-rose-50/50 to-orange-50/50', bg: 'bg-rose-200' },
+                          { color: 'from-emerald-50/50 to-teal-50/50', bg: 'bg-emerald-200' },
+                          { color: 'from-purple-50/50 to-pink-50/50', bg: 'bg-purple-200' },
+                          { color: 'from-amber-50/50 to-yellow-50/50', bg: 'bg-amber-200' },
+                        ].map((theme, i) => (
+                          <button
+                            key={i}
+                            onClick={() => {
+                              updateNote(selectedNote.id, { bannerColor: theme.color });
+                              setIsColorMenuOpen(false);
+                            }}
+                            className={`w-8 h-8 rounded-full ${theme.bg} border-2 border-white/80 shadow-sm hover:scale-110 transition-transform`}
+                          />
+                        ))}
+                        <button 
+                          onClick={() => setIsColorMenuOpen(false)}
+                          className="p-1.5 hover:bg-black/5 rounded-xl ml-1 transition-colors"
+                        >
+                          <X className="w-4 h-4 text-black/50" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={() => setIsColorMenuOpen(true)}
+                        className="flex items-center gap-2 bg-blue-50/50 rounded-2xl px-3 py-1.5 border border-white/50 shadow-sm flex-shrink-0 hover:bg-blue-100/50 transition-colors"
+                      >
+                        <div className="w-4 h-4 rounded-full bg-gradient-to-r from-blue-400 to-purple-400" />
+                        <span className="text-sm text-black font-medium">Banner</span>
                       </button>
                     )}
                   </div>
