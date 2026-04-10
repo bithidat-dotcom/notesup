@@ -16,19 +16,42 @@ const stripHtml = (html: string) => {
 };
 
 export default function App() {
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [notes, setNotes] = useState<Note[]>(() => {
+    const saved = localStorage.getItem("notesup_data");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error("Failed to parse notes from local storage", e);
+      }
+    }
+    return [
+      {
+        id: "1",
+        title: "Welcome to notesup",
+        content: "Try creating a new note, editing this one, or recording a voice message!",
+        updatedAt: Date.now(),
+      }
+    ];
+  });
+  
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(notes.length > 0 ? notes[0].id : null);
   const [isMobileListView, setIsMobileListView] = useState(true);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   
   const [isEditing, setIsEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState("");
+  const [editTitle, setEditTitle] = useState(notes.length > 0 ? notes[0].title : "");
   const editorRef = useRef<HTMLDivElement>(null);
   const [isFontSizeMenuOpen, setIsFontSizeMenuOpen] = useState(false);
   
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+
+  // Save to local storage whenever notes change
+  useEffect(() => {
+    localStorage.setItem("notesup_data", JSON.stringify(notes));
+  }, [notes]);
 
   const toggleVoiceRecording = async () => {
     if (isRecording) {
@@ -72,66 +95,35 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    fetchNotes();
-  }, []);
-
-  const fetchNotes = async () => {
-    try {
-      const res = await fetch("/api/notes");
-      const data = await res.json();
-      setNotes(data);
-      if (data.length > 0 && !selectedNoteId) {
-        setSelectedNoteId(data[0].id);
-        setEditTitle(data[0].title);
+  const createNote = () => {
+    const newNote = {
+      id: Date.now().toString(),
+      title: "Untitled Note",
+      content: "",
+      updatedAt: Date.now(),
+    };
+    setNotes([newNote, ...notes]);
+    setSelectedNoteId(newNote.id);
+    setEditTitle(newNote.title);
+    setIsEditing(true);
+    setIsMobileListView(false);
+    
+    setTimeout(() => {
+      if (editorRef.current) {
+        editorRef.current.focus();
       }
-      setIsLoading(false);
-    } catch (error) {
-      console.error("Failed to fetch notes", error);
-      setIsLoading(false);
-    }
+    }, 100);
   };
 
-  const createNote = async () => {
-    try {
-      const res = await fetch("/api/notes", { method: "POST" });
-      const newNote = await res.json();
-      setNotes([newNote, ...notes]);
-      setSelectedNoteId(newNote.id);
-      setEditTitle(newNote.title);
-      setIsEditing(true);
-      setIsMobileListView(false);
-      
-      setTimeout(() => {
-        if (editorRef.current) {
-          editorRef.current.focus();
-        }
-      }, 100);
-    } catch (error) {
-      console.error("Failed to create note", error);
-    }
-  };
-
-  const updateNote = async (id: string, updates: Partial<Note>) => {
+  const updateNote = (id: string, updates: Partial<Note>) => {
     setNotes((prev) =>
       prev
         .map((n) => (n.id === id ? { ...n, ...updates, updatedAt: Date.now() } : n))
         .sort((a, b) => b.updatedAt - a.updatedAt)
     );
-
-    try {
-      await fetch(`/api/notes/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
-    } catch (error) {
-      console.error("Failed to update note", error);
-      fetchNotes();
-    }
   };
 
-  const deleteNote = async (id: string, e: React.MouseEvent) => {
+  const deleteNote = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setNotes((prev) => prev.filter((n) => n.id !== id));
     if (selectedNoteId === id) {
@@ -143,13 +135,6 @@ export default function App() {
       } else {
         setSelectedNoteId(null);
       }
-    }
-
-    try {
-      await fetch(`/api/notes/${id}`, { method: "DELETE" });
-    } catch (error) {
-      console.error("Failed to delete note", error);
-      fetchNotes();
     }
   };
 
