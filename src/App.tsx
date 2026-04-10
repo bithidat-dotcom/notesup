@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Plus, Trash2, Edit3, Bold, Italic, Highlighter, Save, Edit2, Type, ChevronLeft, Mic, X, Globe, User, Book, Lock, MoreVertical, Image as ImageIcon, Quote, Search, Camera } from "lucide-react";
+import { Plus, Trash2, Edit3, Bold, Italic, Highlighter, Save, Edit2, Type, ChevronLeft, Mic, X, Globe, User, Book, Lock, MoreVertical, Image as ImageIcon, Quote, Search, Camera, LogOut } from "lucide-react";
 import { supabase } from "./lib/supabase";
+import { Session } from '@supabase/supabase-js';
 import Cropper from 'react-easy-crop';
 import { getCroppedImg } from './lib/cropImage';
 
@@ -43,7 +44,7 @@ export default function App() {
     return [
       {
         id: "1",
-        title: "Welcome to notesup",
+        title: "Welcome to notes_up",
         content: "Try creating a new note, editing this one, or recording a voice message!",
         updatedAt: Date.now(),
       }
@@ -56,7 +57,7 @@ export default function App() {
   
   const [activeTab, setActiveTab] = useState<'my_notes' | 'social_notes' | 'profile'>('my_notes');
   const [profile, setProfile] = useState<UserProfile>(() => {
-    const saved = localStorage.getItem("notesup_profile");
+    const saved = localStorage.getItem("notes_up_profile");
     if (saved) {
       const parsed = JSON.parse(saved);
       if (!parsed.id) parsed.id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
@@ -64,6 +65,13 @@ export default function App() {
     }
     return { id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(), name: "Anonymous", handle: "@user" };
   });
+
+  const [session, setSession] = useState<Session | null>(null);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(notes.length > 0 ? notes[0].title : "");
@@ -92,11 +100,27 @@ export default function App() {
   }, [notes]);
 
   useEffect(() => {
-    localStorage.setItem("notesup_profile", JSON.stringify(profile));
+    localStorage.setItem("notes_up_profile", JSON.stringify(profile));
   }, [profile]);
 
   // Initial fetch from Supabase
   useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) {
+        setProfile(prev => ({ ...prev, id: session.user.id }));
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) {
+        setProfile(prev => ({ ...prev, id: session.user.id }));
+      }
+    });
+
     const fetchNotes = async () => {
       setIsLoading(true);
       try {
@@ -143,6 +167,7 @@ export default function App() {
 
     return () => {
       supabase.removeChannel(channel);
+      subscription.unsubscribe();
     };
   }, []);
 
@@ -355,6 +380,84 @@ export default function App() {
   const glassButton = "bg-blue-200/60 hover:bg-blue-300/70 backdrop-blur-md border border-white/60 shadow-sm transition-all duration-300 text-black";
   const iconButton = "p-2.5 rounded-2xl bg-blue-100/50 hover:bg-blue-200/70 backdrop-blur-md border border-white/50 transition-all text-black shadow-sm flex-shrink-0";
 
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError("");
+    const { error } = await supabase.auth.signUp({
+      email: authEmail,
+      password: authPassword,
+    });
+    if (error) setAuthError(error.message);
+    else setAuthError("Success! Check your email for the login link or you are now logged in.");
+    setAuthLoading(false);
+  };
+
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError("");
+    const { error } = await supabase.auth.signInWithPassword({
+      email: authEmail,
+      password: authPassword,
+    });
+    if (error) setAuthError(error.message);
+    setAuthLoading(false);
+  };
+
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center p-4 font-sans">
+        <div className="w-full max-w-md bg-white/60 backdrop-blur-xl p-8 rounded-3xl border border-white/60 shadow-[0_12px_40px_rgba(0,0,0,0.06)]">
+          <div className="flex items-center justify-center gap-3 font-semibold text-3xl text-black mb-8">
+            <Edit3 className="w-8 h-8" />
+            notes_up
+          </div>
+          <h2 className="text-2xl font-bold text-center mb-6 text-black">Welcome Back</h2>
+          <form className="space-y-4">
+            <div>
+              <label className="block text-sm font-semibold text-black/70 mb-2">Email</label>
+              <input 
+                type="email" 
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                className="w-full bg-white/50 border border-white/60 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-400/50 transition-all text-black font-medium"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-black/70 mb-2">Password</label>
+              <input 
+                type="password" 
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                className="w-full bg-white/50 border border-white/60 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-400/50 transition-all text-black font-medium"
+                required
+              />
+            </div>
+            {authError && <p className="text-red-500 text-sm text-center">{authError}</p>}
+            <div className="flex gap-3 pt-4">
+              <button 
+                onClick={handleSignIn}
+                disabled={authLoading}
+                className="flex-1 bg-blue-600 text-white py-3 rounded-2xl font-medium shadow-md hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                Sign In
+              </button>
+              <button 
+                onClick={handleSignUp}
+                disabled={authLoading}
+                className="flex-1 bg-white/50 text-black py-3 rounded-2xl font-medium border border-white/60 hover:bg-white/80 transition-colors disabled:opacity-50"
+              >
+                Sign Up
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen w-full flex overflow-hidden bg-gradient-to-br from-[#e6f0fa] via-[#eef0fc] to-[#f8ebf8] text-black font-sans">
       
@@ -370,7 +473,7 @@ export default function App() {
           <div className="flex items-center justify-between mb-8 px-2 pt-2">
             <div className="flex items-center gap-3 font-semibold text-2xl text-black">
               <Edit3 className="w-7 h-7" />
-              notesup
+              notes_up
             </div>
             <button 
               onClick={() => setIsSearchOpen(!isSearchOpen)}
@@ -557,6 +660,13 @@ export default function App() {
             </button>
             {isMyNote && (
               <>
+                <button 
+                  onClick={() => updateNote(selectedNote.id, { isPublic: !selectedNote.isPublic, authorName: profile.name, authorAvatar: profile.avatarUrl })}
+                  className={`p-3 rounded-2xl transition-all ${selectedNote.isPublic ? 'bg-green-200/70 text-green-900 border border-green-300/50' : glassButton}`}
+                  title={selectedNote.isPublic ? "Published to Social" : "Share to Social"}
+                >
+                  <Globe className={`w-5 h-5 ${selectedNote.isPublic ? '' : 'opacity-50'}`} />
+                </button>
                 {isEditing ? (
                   <button onClick={handleSave} className={`p-3 rounded-2xl ${glassButton}`}>
                     <Save className="w-5 h-5" />
@@ -596,7 +706,16 @@ export default function App() {
                     </div>
                     <input type="file" accept="image/*" ref={profileInputRef} className="hidden" onChange={handleProfileImageUpload} />
                   </div>
-                  <h2 className="text-2xl font-bold text-center mb-8 text-black">Your Profile</h2>
+                  <div className="flex items-center justify-between mb-8">
+                    <h2 className="text-2xl font-bold text-black">Your Profile</h2>
+                    <button 
+                      onClick={() => setShowSignOutConfirm(true)}
+                      className="p-2 rounded-xl hover:bg-red-100 text-red-500 transition-colors"
+                      title="Sign Out"
+                    >
+                      <LogOut className="w-5 h-5" />
+                    </button>
+                  </div>
                   
                   <div className="space-y-5">
                     <div>
@@ -617,6 +736,18 @@ export default function App() {
                         className="w-full bg-white/50 border border-white/60 rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-400/50 transition-all text-black font-medium"
                       />
                     </div>
+                    <button 
+                      onClick={() => {
+                        localStorage.setItem("notes_up_profile", JSON.stringify(profile));
+                        const updatedNotes = notes.map(n => n.authorId === profile.id ? { ...n, authorName: profile.name, authorAvatar: profile.avatarUrl } : n);
+                        setNotes(updatedNotes);
+                        updatedNotes.filter(n => n.authorId === profile.id).forEach(n => supabase.from('notes').upsert(n));
+                        alert("Profile saved successfully!");
+                      }}
+                      className="w-full bg-blue-600 text-white py-3.5 rounded-2xl font-medium shadow-md hover:bg-blue-700 transition-colors mt-4"
+                    >
+                      Save Profile
+                    </button>
                   </div>
                 </div>
               </motion.div>
@@ -933,6 +1064,39 @@ export default function App() {
                     Insert Image
                   </button>
                 </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {/* Sign Out Confirmation Modal */}
+      <AnimatePresence>
+        {showSignOutConfirm && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          >
+            <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-white/50">
+              <h3 className="text-xl font-bold text-black mb-2">Sign Out</h3>
+              <p className="text-black/60 mb-6">Are you sure you want to sign out?</p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setShowSignOutConfirm(false)}
+                  className="flex-1 px-4 py-3 rounded-2xl font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => {
+                    supabase.auth.signOut();
+                    setShowSignOutConfirm(false);
+                  }}
+                  className="flex-1 px-4 py-3 rounded-2xl font-medium bg-red-500 text-white hover:bg-red-600 transition-colors shadow-md"
+                >
+                  Sign Out
+                </button>
               </div>
             </div>
           </motion.div>
