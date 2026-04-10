@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Plus, Trash2, Edit3, Bold, Italic, Highlighter, Save, Edit2, Type, ChevronLeft, Mic, X, Globe, User, Book, Lock } from "lucide-react";
+import { Plus, Trash2, Edit3, Bold, Italic, Highlighter, Save, Edit2, Type, ChevronLeft, Mic, X, Globe, User, Book, Lock, MoreVertical, Image as ImageIcon, Quote } from "lucide-react";
 import { supabase } from "./lib/supabase";
 
 interface Note {
@@ -57,6 +57,8 @@ export default function App() {
   const [editTitle, setEditTitle] = useState(notes.length > 0 ? notes[0].title : "");
   const editorRef = useRef<HTMLDivElement>(null);
   const [isFontSizeMenuOpen, setIsFontSizeMenuOpen] = useState(false);
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -99,6 +101,12 @@ export default function App() {
     };
     
     fetchNotes();
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = () => setActiveMenuId(null);
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
   const toggleVoiceRecording = async () => {
@@ -190,6 +198,21 @@ export default function App() {
       await supabase.from('notes').upsert(updatedNote);
     } catch (err) {
       console.error("Failed to update in Supabase:", err);
+    }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (editorRef.current) {
+          editorRef.current.focus();
+          const imgHtml = `<br><img src="${reader.result}" class="max-w-full rounded-2xl shadow-sm my-4 border border-white/50" alt="Uploaded image" /><br>`;
+          document.execCommand('insertHTML', false, imgHtml);
+        }
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -308,24 +331,63 @@ export default function App() {
                         : "bg-white/30 hover:bg-white/50 border border-white/40"}
                     `}
                   >
-                    <h3 className="font-semibold truncate pr-8 text-black text-lg">
-                      {note.title || "Untitled"}
-                    </h3>
-                    {activeTab === 'social_notes' && note.authorName && (
-                      <div className="flex items-center gap-1 mt-1 text-xs font-medium text-blue-600/80">
-                        <User className="w-3 h-3" />
-                        {note.authorName}
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold truncate pr-4 text-black text-lg">
+                          {note.title || "Untitled"}
+                        </h3>
+                        {activeTab === 'social_notes' && note.authorName && (
+                          <div className="flex items-center gap-1 mt-1 text-xs font-medium text-blue-600/80">
+                            <User className="w-3 h-3" />
+                            {note.authorName}
+                          </div>
+                        )}
                       </div>
-                    )}
+                      <div className="relative flex-shrink-0">
+                        <button 
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            setActiveMenuId(activeMenuId === note.id ? null : note.id); 
+                          }} 
+                          className="p-1.5 hover:bg-black/5 rounded-xl transition-colors"
+                        >
+                          <MoreVertical className="w-5 h-5 text-black/50" />
+                        </button>
+                        <AnimatePresence>
+                          {activeMenuId === note.id && (
+                            <motion.div 
+                              initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                              animate={{ opacity: 1, scale: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                              className="absolute right-0 mt-1 w-36 bg-white/90 backdrop-blur-xl border border-white/50 rounded-2xl shadow-lg z-50 overflow-hidden"
+                            >
+                              <button 
+                                onClick={(e) => { 
+                                  e.stopPropagation(); 
+                                  updateNote(note.id, { isPublic: !note.isPublic, authorName: profile.name }); 
+                                  setActiveMenuId(null); 
+                                }} 
+                                className="w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 text-black font-medium flex items-center gap-2"
+                              >
+                                {note.isPublic ? <Lock className="w-4 h-4"/> : <Globe className="w-4 h-4"/>}
+                                {note.isPublic ? 'Make Private' : 'Publish'}
+                              </button>
+                              <div className="w-full h-px bg-black/5" />
+                              <button 
+                                onClick={(e) => { deleteNote(note.id, e); setActiveMenuId(null); }} 
+                                className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 text-red-600 font-medium flex items-center gap-2"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                                Delete
+                              </button>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    </div>
                     <p className="text-sm text-black/60 truncate mt-1.5">
                       {stripHtml(note.content) || "No content"}
                     </p>
-                    <button
-                      onClick={(e) => deleteNote(note.id, e)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 p-2.5 rounded-2xl opacity-0 group-hover:opacity-100 hover:bg-red-100 hover:text-red-600 transition-all bg-white/50 shadow-sm"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
                   </motion.div>
                 ))}
               </AnimatePresence>
@@ -542,6 +604,13 @@ export default function App() {
                     <button onClick={() => document.execCommand('backColor', false, '#fef08a')} className={iconButton} title="Highlight">
                       <Highlighter className="w-5 h-5" />
                     </button>
+                    <button onClick={() => document.execCommand('formatBlock', false, 'blockquote')} className={iconButton} title="Quote / Reply">
+                      <Quote className="w-5 h-5" />
+                    </button>
+                    <button onClick={() => fileInputRef.current?.click()} className={iconButton} title="Insert Image">
+                      <ImageIcon className="w-5 h-5" />
+                    </button>
+                    <input type="file" accept="image/*" ref={fileInputRef} className="hidden" onChange={handleImageUpload} />
                     <div className="w-px h-8 bg-black/10 mx-1 md:mx-2 flex-shrink-0" />
                     {isFontSizeMenuOpen ? (
                       <div className="flex items-center gap-1 bg-blue-50/50 rounded-2xl px-1 py-1 border border-white/50 shadow-sm flex-shrink-0">
