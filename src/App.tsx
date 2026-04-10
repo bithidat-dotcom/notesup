@@ -136,11 +136,14 @@ export default function App() {
           const base64AudioMessage = reader.result as string;
           if (editorRef.current) {
             editorRef.current.focus();
-            const audioHtml = `&nbsp;<div contenteditable="false" class="inline-flex items-center gap-3 p-1.5 pr-4 bg-blue-50/80 backdrop-blur-md border border-blue-200/60 rounded-full shadow-sm my-2 max-w-full align-middle">
-              <div class="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white shadow-inner flex-shrink-0">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
+            const audioHtml = `&nbsp;<div contenteditable="false" class="inline-flex items-center gap-2 p-2 pr-4 bg-white/80 backdrop-blur-xl border border-white shadow-lg rounded-2xl my-3 max-w-full align-middle">
+              <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center text-white shadow-md flex-shrink-0">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
               </div>
-              <audio controls src="${base64AudioMessage}" class="h-8 outline-none max-w-[200px] sm:max-w-xs"></audio>
+              <div class="flex flex-col justify-center">
+                <span class="text-[10px] font-bold text-blue-900/50 uppercase tracking-wider ml-3 mb-0.5">Voice Note</span>
+                <audio controls controlsList="nodownload noplaybackrate" src="${base64AudioMessage}" class="h-8 outline-none max-w-[200px] sm:max-w-xs"></audio>
+              </div>
             </div>&nbsp;`;
             document.execCommand('insertHTML', false, audioHtml);
           }
@@ -343,51 +346,16 @@ export default function App() {
                           </div>
                         )}
                       </div>
-                      <div className="relative flex-shrink-0">
-                        <button 
-                          onClick={(e) => { 
-                            e.stopPropagation(); 
-                            setActiveMenuId(activeMenuId === note.id ? null : note.id); 
-                          }} 
-                          className="p-1.5 hover:bg-black/5 rounded-xl transition-colors"
-                        >
-                          <MoreVertical className="w-5 h-5 text-black/50" />
-                        </button>
-                        <AnimatePresence>
-                          {activeMenuId === note.id && (
-                            <motion.div 
-                              initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                              animate={{ opacity: 1, scale: 1, y: 0 }}
-                              exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                              className="absolute right-0 mt-1 w-36 bg-white/90 backdrop-blur-xl border border-white/50 rounded-2xl shadow-lg z-50 overflow-hidden"
-                            >
-                              <button 
-                                onClick={(e) => { 
-                                  e.stopPropagation(); 
-                                  updateNote(note.id, { isPublic: !note.isPublic, authorName: profile.name }); 
-                                  setActiveMenuId(null); 
-                                }} 
-                                className="w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 text-black font-medium flex items-center gap-2"
-                              >
-                                {note.isPublic ? <Lock className="w-4 h-4"/> : <Globe className="w-4 h-4"/>}
-                                {note.isPublic ? 'Make Private' : 'Publish'}
-                              </button>
-                              <div className="w-full h-px bg-black/5" />
-                              <button 
-                                onClick={(e) => { deleteNote(note.id, e); setActiveMenuId(null); }} 
-                                className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 text-red-600 font-medium flex items-center gap-2"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                                Delete
-                              </button>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
                     </div>
                     <p className="text-sm text-black/60 truncate mt-1.5">
                       {stripHtml(note.content) || "No content"}
                     </p>
+                    <button
+                      onClick={(e) => deleteNote(note.id, e)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 p-2.5 rounded-2xl opacity-0 group-hover:opacity-100 hover:bg-red-100 hover:text-red-600 transition-all bg-white/50 shadow-sm"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </motion.div>
                 ))}
               </AnimatePresence>
@@ -543,16 +511,15 @@ export default function App() {
                   )}
 
                   <div className="flex items-center gap-3">
-                    {isEditing && (
-                      <button 
-                        onClick={() => updateNote(selectedNote.id, { isPublic: !selectedNote.isPublic, authorName: profile.name })}
-                        className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-medium transition-all ${selectedNote.isPublic ? 'bg-green-200/70 hover:bg-green-300/80 text-green-900 shadow-sm border border-green-300/50' : glassButton}`}
-                        title={selectedNote.isPublic ? "Public Note" : "Private Note"}
-                      >
-                        {selectedNote.isPublic ? <Globe className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
-                        <span className="hidden sm:inline">{selectedNote.isPublic ? 'Public' : 'Private'}</span>
-                      </button>
-                    )}
+                    <button 
+                      onClick={() => updateNote(selectedNote.id, { isPublic: !selectedNote.isPublic, authorName: profile.name })}
+                      className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-medium transition-all ${selectedNote.isPublic ? 'bg-green-200/70 hover:bg-green-300/80 text-green-900 shadow-sm border border-green-300/50' : glassButton}`}
+                      title={selectedNote.isPublic ? "Published to Social" : "Share to Social"}
+                    >
+                      {selectedNote.isPublic ? <Globe className="w-5 h-5" /> : <Globe className="w-5 h-5 opacity-50" />}
+                      <span className="hidden sm:inline">{selectedNote.isPublic ? 'Published' : 'Share'}</span>
+                    </button>
+
                     {isEditing ? (
                       <button onClick={handleSave} className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-medium ${glassButton}`}>
                         <Save className="w-5 h-5" />
