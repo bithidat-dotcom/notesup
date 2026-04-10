@@ -1,7 +1,9 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Plus, Trash2, Edit3, Bold, Italic, Highlighter, Save, Edit2, Type, ChevronLeft, Mic, X, Globe, User, Book, Lock, MoreVertical, Image as ImageIcon, Quote } from "lucide-react";
+import { Plus, Trash2, Edit3, Bold, Italic, Highlighter, Save, Edit2, Type, ChevronLeft, Mic, X, Globe, User, Book, Lock, MoreVertical, Image as ImageIcon, Quote, Search, Camera } from "lucide-react";
 import { supabase } from "./lib/supabase";
+import Cropper from 'react-easy-crop';
+import { getCroppedImg } from './lib/cropImage';
 
 interface Note {
   id: string;
@@ -10,11 +12,15 @@ interface Note {
   updatedAt: number;
   isPublic?: boolean;
   authorName?: string;
+  authorId?: string;
+  authorAvatar?: string;
 }
 
 interface UserProfile {
+  id: string;
   name: string;
   handle: string;
+  avatarUrl?: string;
 }
 
 const stripHtml = (html: string) => {
@@ -50,7 +56,12 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'my_notes' | 'social_notes' | 'profile'>('my_notes');
   const [profile, setProfile] = useState<UserProfile>(() => {
     const saved = localStorage.getItem("notesup_profile");
-    return saved ? JSON.parse(saved) : { name: "Anonymous", handle: "@user" };
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (!parsed.id) parsed.id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
+      return parsed;
+    }
+    return { id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(), name: "Anonymous", handle: "@user" };
   });
 
   const [isEditing, setIsEditing] = useState(false);
@@ -59,6 +70,15 @@ export default function App() {
   const [isFontSizeMenuOpen, setIsFontSizeMenuOpen] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const profileInputRef = useRef<HTMLInputElement>(null);
+  
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
   
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -101,6 +121,27 @@ export default function App() {
     };
     
     fetchNotes();
+
+    // Realtime Subscription
+    const channel = supabase
+      .channel('public:notes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notes' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setNotes(prev => {
+            if (prev.find(n => n.id === payload.new.id)) return prev;
+            return [payload.new as Note, ...prev].sort((a, b) => b.updatedAt - a.updatedAt);
+          });
+        } else if (payload.eventType === 'UPDATE') {
+          setNotes(prev => prev.map(n => n.id === payload.new.id ? payload.new as Note : n).sort((a, b) => b.updatedAt - a.updatedAt));
+        } else if (payload.eventType === 'DELETE') {
+          setNotes(prev => prev.filter(n => n.id !== payload.old.id));
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   useEffect(() => {
@@ -166,7 +207,9 @@ export default function App() {
       content: "",
       updatedAt: Date.now(),
       isPublic: false,
-      authorName: profile.name
+      authorName: profile.name,
+      authorId: profile.id,
+      authorAvatar: profile.avatarUrl
     };
     
     setNotes([newNote, ...notes]);
@@ -209,11 +252,39 @@ export default function App() {
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
+        setCropImageSrc(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const onCropComplete = useCallback((croppedArea: any, croppedAreaPixels: any) => {
+    setCroppedAreaPixels(croppedAreaPixels);
+  }, []);
+
+  const handleCropConfirm = async () => {
+    if (cropImageSrc && croppedAreaPixels) {
+      try {
+        const croppedImage = await getCroppedImg(cropImageSrc, croppedAreaPixels);
         if (editorRef.current) {
           editorRef.current.focus();
-          const imgHtml = `<br><img src="${reader.result}" class="max-w-full rounded-2xl shadow-sm my-4 border border-white/50" alt="Uploaded image" /><br>`;
+          const imgHtml = `<br><img src="${croppedImage}" class="max-w-full rounded-2xl shadow-sm my-4 border border-black/10" alt="Uploaded image" /><br>`;
           document.execCommand('insertHTML', false, imgHtml);
         }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    setCropImageSrc(null);
+  };
+
+  const handleProfileImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setProfile({ ...profile, avatarUrl: reader.result as string });
       };
       reader.readAsDataURL(file);
     }
@@ -266,10 +337,14 @@ export default function App() {
   };
 
   const selectedNote = notes.find((n) => n.id === selectedNoteId);
+  const isMyNote = selectedNote ? selectedNote.authorId === profile.id : false;
   
-  const displayedNotes = activeTab === 'social_notes' 
+  const displayedNotes = (activeTab === 'social_notes' 
     ? notes.filter(n => n.isPublic) 
-    : notes;
+    : notes).filter(n => 
+      n.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      (n.authorName && n.authorName.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
 
   // Glassmorphism classes
   const glassPanel = "bg-white/60 backdrop-blur-2xl border border-white/60 shadow-[0_12px_40px_rgba(0,0,0,0.06)]";
@@ -289,11 +364,46 @@ export default function App() {
         `}
       >
         <div className="p-6 flex-1 flex flex-col h-full">
-          <div className="flex items-center gap-3 font-semibold text-2xl mb-8 text-black px-2 pt-2">
-            <Edit3 className="w-7 h-7" />
-            notesup
+          <div className="flex items-center justify-between mb-8 px-2 pt-2">
+            <div className="flex items-center gap-3 font-semibold text-2xl text-black">
+              <Edit3 className="w-7 h-7" />
+              notesup
+            </div>
+            <button 
+              onClick={() => setIsSearchOpen(!isSearchOpen)}
+              className="p-2 rounded-full hover:bg-white/40 transition-colors text-black/70"
+            >
+              <Search className="w-5 h-5" />
+            </button>
           </div>
           
+          <AnimatePresence>
+            {isSearchOpen && (
+              <motion.div 
+                initial={{ height: 0, opacity: 0, marginBottom: 0 }}
+                animate={{ height: 'auto', opacity: 1, marginBottom: 24 }}
+                exit={{ height: 0, opacity: 0, marginBottom: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-black/40" />
+                  <input 
+                    type="text" 
+                    placeholder="Search notes or users..." 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-white/50 border border-white/60 rounded-2xl pl-10 pr-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-400/50 transition-all text-black text-sm font-medium placeholder:text-black/40"
+                  />
+                  {searchQuery && (
+                    <button onClick={() => setSearchQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2">
+                      <X className="w-4 h-4 text-black/40 hover:text-black/70" />
+                    </button>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
@@ -340,8 +450,12 @@ export default function App() {
                           {note.title || "Untitled"}
                         </h3>
                         {activeTab === 'social_notes' && note.authorName && (
-                          <div className="flex items-center gap-1 mt-1 text-xs font-medium text-blue-600/80">
-                            <User className="w-3 h-3" />
+                          <div className="flex items-center gap-1.5 mt-1 text-xs font-medium text-blue-600/80">
+                            {note.authorAvatar ? (
+                              <img src={note.authorAvatar} alt={note.authorName} className="w-4 h-4 rounded-full object-cover" />
+                            ) : (
+                              <User className="w-3 h-3" />
+                            )}
                             {note.authorName}
                           </div>
                         )}
@@ -350,12 +464,14 @@ export default function App() {
                     <p className="text-sm text-black/60 truncate mt-1.5">
                       {stripHtml(note.content) || "No content"}
                     </p>
-                    <button
-                      onClick={(e) => deleteNote(note.id, e)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 p-2.5 rounded-2xl opacity-0 group-hover:opacity-100 hover:bg-red-100 hover:text-red-600 transition-all bg-white/50 shadow-sm"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {note.authorId === profile.id && (
+                      <button
+                        onClick={(e) => deleteNote(note.id, e)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 p-2.5 rounded-2xl opacity-0 group-hover:opacity-100 hover:bg-red-100 hover:text-red-600 transition-all bg-white/50 shadow-sm"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </motion.div>
                 ))}
               </AnimatePresence>
@@ -401,17 +517,41 @@ export default function App() {
           <button onClick={() => { setIsMobileListView(true); if (activeTab === 'profile') setActiveTab('my_notes'); }} className={`p-3 rounded-2xl ${glassButton}`}>
             <ChevronLeft className="w-6 h-6" />
           </button>
+          
+          <div className="flex-1 px-3">
+            {isSearchOpen && (
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-black/40" />
+                <input 
+                  type="text" 
+                  placeholder="Search..." 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-white/50 border border-white/60 rounded-2xl pl-9 pr-4 py-2 outline-none focus:ring-2 focus:ring-blue-400/50 transition-all text-black text-sm font-medium placeholder:text-black/40"
+                />
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center gap-2">
-            {isEditing ? (
-              <button onClick={handleSave} className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-medium ${glassButton}`}>
-                <Save className="w-5 h-5" />
-                <span>Save</span>
-              </button>
-            ) : (
-              <button onClick={handleEdit} className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-medium ${glassButton}`}>
-                <Edit2 className="w-5 h-5" />
-                <span>Edit</span>
-              </button>
+            <button 
+              onClick={() => setIsSearchOpen(!isSearchOpen)}
+              className={`p-3 rounded-2xl ${glassButton}`}
+            >
+              <Search className="w-5 h-5" />
+            </button>
+            {isMyNote && (
+              <>
+                {isEditing ? (
+                  <button onClick={handleSave} className={`p-3 rounded-2xl ${glassButton}`}>
+                    <Save className="w-5 h-5" />
+                  </button>
+                ) : (
+                  <button onClick={handleEdit} className={`p-3 rounded-2xl ${glassButton}`}>
+                    <Edit2 className="w-5 h-5" />
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -428,8 +568,18 @@ export default function App() {
                 className={`w-full h-full md:rounded-3xl ${glassPanel} md:border flex flex-col items-center justify-center p-6 border-0 rounded-none overflow-y-auto`}
               >
                 <div className="w-full max-w-md bg-white/40 backdrop-blur-xl p-8 rounded-3xl border border-white/50 shadow-sm">
-                  <div className="w-20 h-20 bg-blue-200/80 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
-                    <User className="w-10 h-10 text-blue-700/70" />
+                  <div className="relative w-24 h-24 mx-auto mb-6 group cursor-pointer" onClick={() => profileInputRef.current?.click()}>
+                    {profile.avatarUrl ? (
+                      <img src={profile.avatarUrl} alt="Profile" className="w-full h-full rounded-full object-cover shadow-inner border-2 border-white" />
+                    ) : (
+                      <div className="w-full h-full bg-blue-200/80 rounded-full flex items-center justify-center shadow-inner border-2 border-white">
+                        <User className="w-12 h-12 text-blue-700/70" />
+                      </div>
+                    )}
+                    <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <Camera className="w-8 h-8 text-white" />
+                    </div>
+                    <input type="file" accept="image/*" ref={profileInputRef} className="hidden" onChange={handleProfileImageUpload} />
                   </div>
                   <h2 className="text-2xl font-bold text-center mb-8 text-black">Your Profile</h2>
                   
@@ -511,32 +661,36 @@ export default function App() {
                   )}
 
                   <div className="flex items-center gap-3">
-                    <button 
-                      onClick={() => updateNote(selectedNote.id, { isPublic: !selectedNote.isPublic, authorName: profile.name })}
-                      className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-medium transition-all ${selectedNote.isPublic ? 'bg-green-200/70 hover:bg-green-300/80 text-green-900 shadow-sm border border-green-300/50' : glassButton}`}
-                      title={selectedNote.isPublic ? "Published to Social" : "Share to Social"}
-                    >
-                      {selectedNote.isPublic ? <Globe className="w-5 h-5" /> : <Globe className="w-5 h-5 opacity-50" />}
-                      <span className="hidden sm:inline">{selectedNote.isPublic ? 'Published' : 'Share'}</span>
-                    </button>
+                    {isMyNote && (
+                      <>
+                        <button 
+                          onClick={() => updateNote(selectedNote.id, { isPublic: !selectedNote.isPublic, authorName: profile.name, authorAvatar: profile.avatarUrl })}
+                          className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-medium transition-all ${selectedNote.isPublic ? 'bg-green-200/70 hover:bg-green-300/80 text-green-900 shadow-sm border border-green-300/50' : glassButton}`}
+                          title={selectedNote.isPublic ? "Published to Social" : "Share to Social"}
+                        >
+                          {selectedNote.isPublic ? <Globe className="w-5 h-5" /> : <Globe className="w-5 h-5 opacity-50" />}
+                          <span className="hidden sm:inline">{selectedNote.isPublic ? 'Published' : 'Share'}</span>
+                        </button>
 
-                    {isEditing ? (
-                      <button onClick={handleSave} className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-medium ${glassButton}`}>
-                        <Save className="w-5 h-5" />
-                        <span>Save</span>
-                      </button>
-                    ) : (
-                      <button onClick={handleEdit} className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-medium ${glassButton}`}>
-                        <Edit2 className="w-5 h-5" />
-                        <span>Edit</span>
-                      </button>
+                        {isEditing ? (
+                          <button onClick={handleSave} className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-medium ${glassButton}`}>
+                            <Save className="w-5 h-5" />
+                            <span>Save</span>
+                          </button>
+                        ) : (
+                          <button onClick={handleEdit} className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-medium ${glassButton}`}>
+                            <Edit2 className="w-5 h-5" />
+                            <span>Edit</span>
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
 
                 {/* Mobile Title Input/Display */}
                 <div className="md:hidden p-6 pb-4 border-b border-white/20">
-                  {isEditing ? (
+                  {isEditing && isMyNote ? (
                     <input
                       type="text"
                       value={editTitle}
@@ -552,7 +706,7 @@ export default function App() {
                 </div>
 
                 {/* Toolbar */}
-                {isEditing && (
+                {isEditing && isMyNote && (
                   <div className="flex items-center gap-3 px-4 md:px-10 py-3 md:py-4 bg-white/30 border-b border-white/40 overflow-x-auto custom-scrollbar">
                     <button 
                       onClick={toggleVoiceRecording} 
@@ -619,7 +773,7 @@ export default function App() {
 
                 {/* Editor Content */}
                 <div className="flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar">
-                  {isEditing ? (
+                  {isEditing && isMyNote ? (
                     <div
                       ref={editorRef}
                       contentEditable
@@ -647,6 +801,61 @@ export default function App() {
           </AnimatePresence>
         </div>
       </div>
+
+      {/* Image Cropper Modal */}
+      <AnimatePresence>
+        {cropImageSrc && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          >
+            <div className="bg-white rounded-3xl overflow-hidden w-full max-w-2xl shadow-2xl flex flex-col">
+              <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+                <h3 className="font-bold text-lg">Edit Image</h3>
+                <button onClick={() => setCropImageSrc(null)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="relative w-full h-[50vh] bg-gray-900">
+                <Cropper
+                  image={cropImageSrc}
+                  crop={crop}
+                  zoom={zoom}
+                  aspect={4 / 3}
+                  onCropChange={setCrop}
+                  onCropComplete={onCropComplete}
+                  onZoomChange={setZoom}
+                />
+              </div>
+              <div className="p-6 bg-gray-50 flex flex-col gap-4">
+                <div className="flex items-center gap-4">
+                  <span className="text-sm font-medium text-gray-500">Zoom</span>
+                  <input
+                    type="range"
+                    value={zoom}
+                    min={1}
+                    max={3}
+                    step={0.1}
+                    aria-labelledby="Zoom"
+                    onChange={(e) => setZoom(Number(e.target.value))}
+                    className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+                <div className="flex justify-end gap-3 mt-2">
+                  <button onClick={() => setCropImageSrc(null)} className="px-6 py-2.5 rounded-xl font-medium text-gray-600 hover:bg-gray-200 transition-colors">
+                    Cancel
+                  </button>
+                  <button onClick={handleCropConfirm} className="px-6 py-2.5 rounded-xl font-medium bg-blue-600 text-white hover:bg-blue-700 shadow-md transition-colors">
+                    Insert Image
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
