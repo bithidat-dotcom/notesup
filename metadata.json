@@ -1,0 +1,5 @@
+{
+  "name": "Glass Notes",
+  "description": "A high-performance, full-stack notebook app with smooth animations and a glassmorphism UI.",
+  "requestFramePermissions": []
+}
