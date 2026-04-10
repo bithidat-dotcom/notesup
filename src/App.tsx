@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Plus, Trash2, Edit3, Bold, Italic, Highlighter, Save, Edit2, Type, ChevronLeft, Mic } from "lucide-react";
+import { Plus, Trash2, Edit3, Bold, Italic, Highlighter, Save, Edit2, Type, ChevronLeft, Mic, X } from "lucide-react";
 
 interface Note {
   id: string;
@@ -24,6 +24,7 @@ export default function App() {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const editorRef = useRef<HTMLDivElement>(null);
+  const [isFontSizeMenuOpen, setIsFontSizeMenuOpen] = useState(false);
   
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -365,19 +366,41 @@ export default function App() {
                       <Highlighter className="w-5 h-5" />
                     </button>
                     <div className="w-px h-8 bg-black/10 mx-1 md:mx-2 flex-shrink-0" />
-                    <div className="flex items-center gap-2 bg-blue-50/50 rounded-2xl px-3 py-1.5 border border-white/50 shadow-sm flex-shrink-0">
-                      <Type className="w-4 h-4 text-black" />
-                      <select 
-                        onChange={(e) => document.execCommand('fontSize', false, e.target.value)} 
-                        className="py-1 bg-transparent outline-none text-sm text-black font-medium cursor-pointer"
-                        defaultValue="3"
+                    {isFontSizeMenuOpen ? (
+                      <div className="flex items-center gap-1 bg-blue-50/50 rounded-2xl px-1 py-1 border border-white/50 shadow-sm flex-shrink-0">
+                        {[
+                          { label: 'Small', value: '1' },
+                          { label: 'Normal', value: '3' },
+                          { label: 'Large', value: '5' },
+                          { label: 'Huge', value: '7' },
+                        ].map((size) => (
+                          <button
+                            key={size.value}
+                            onClick={() => {
+                              document.execCommand('fontSize', false, size.value);
+                              setIsFontSizeMenuOpen(false);
+                            }}
+                            className="px-3 py-1.5 text-sm text-black font-medium hover:bg-white/60 rounded-xl transition-colors whitespace-nowrap"
+                          >
+                            {size.label}
+                          </button>
+                        ))}
+                        <button 
+                          onClick={() => setIsFontSizeMenuOpen(false)}
+                          className="p-1.5 hover:bg-black/5 rounded-xl ml-1 transition-colors"
+                        >
+                          <X className="w-4 h-4 text-black/50" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={() => setIsFontSizeMenuOpen(true)}
+                        className="flex items-center gap-2 bg-blue-50/50 rounded-2xl px-3 py-1.5 border border-white/50 shadow-sm flex-shrink-0 hover:bg-blue-100/50 transition-colors"
                       >
-                        <option value="1">Small</option>
-                        <option value="3">Normal</option>
-                        <option value="5">Large</option>
-                        <option value="7">Huge</option>
-                      </select>
-                    </div>
+                        <Type className="w-4 h-4 text-black" />
+                        <span className="text-sm text-black font-medium">Size</span>
+                      </button>
+                    )}
                   </div>
                 )}
 
